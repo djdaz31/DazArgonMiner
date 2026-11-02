@@ -38,9 +38,11 @@ NVIDIA CUDA miner for **Argonmine (ARG)**: Argon2id with t=1, m=8 MiB, p=1. It r
 | VRAM | 8 MiB per hash in flight. The batch is picked to leave about 1.5 GiB free; 8 GB cards run fine |
 | Driver | A recent driver. 570 or newer is recommended, and RTX 50 cards require it |
 | System | HiveOS, or Ubuntu 22.04/24.04 (native or WSL2), x86_64 |
-| Tools | `python3`, `g++`. The CUDA compiler is fetched automatically (see below) |
+| Tools | `python3`. `g++` only if the miner has to compile itself (see below) |
 
-The miner is compiled on your machine at first start, which takes 1–3 minutes. If `nvcc` 12.8 or newer is installed, it is used. Otherwise the official NVIDIA CUDA redistributables (`cuda_nvcc`, `cuda_cudart`, `cuda_cccl`, about 100 MB) are downloaded from `developer.download.nvidia.com` into the miner's own folder, and their SHA-256 is checked against NVIDIA's manifest. No `pip` or `apt` package is installed.
+**Prebuilt binary**: both release archives ship a ready-to-run `bin/argon_gpu`, built on HiveOS with CUDA 12.9 for sm_86, sm_89 and sm_120 (+ PTX). It needs **glibc 2.34 or newer**: HiveOS, Ubuntu 22.04, Ubuntu 24.04 and WSL2 all qualify. `BUILD_INFO.txt` in the archive gives the details.
+
+**Automatic fallback**: if the bundled binary cannot run on a system (for example an older glibc), the miner compiles itself at start-up, which takes 1–3 minutes. If `nvcc` 12.8 or newer is installed, it is used. Otherwise the official NVIDIA CUDA redistributables (`cuda_nvcc`, `cuda_cudart`, `cuda_cccl`, about 100 MB) are downloaded from `developer.download.nvidia.com` into the miner's own folder, and their SHA-256 is checked against NVIDIA's manifest. No `pip` or `apt` package is installed.
 
 ---
 
@@ -54,14 +56,14 @@ Create a flight sheet with the **Custom** miner:
 | Wallet | your `arg1...` address |
 | Pool | Configure in miner |
 | Miner name | `argonmine-cuda` |
-| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.0/argonmine-cuda-0.4.0.tar.gz` |
+| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.1/argonmine-cuda-0.4.1.tar.gz` |
 | Hash algorithm | `argon2id` |
 | Wallet and worker template | `%WAL%` (address only, no `.%WORKER_NAME%`) |
 | Pool URL | `https://explorer.argonmine.com` |
 | Pass | *(empty)* |
 | Extra config arguments | *(empty)*, or for example `devices=0,1,2 retune=1` |
 
-The first start shows `[fetch]` and `[build]` lines, then `[selftest] fast kernel: OK`, then batch tuning (about 1.5 min), then mining. Follow it with `miner log`.
+Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then batch tuning (about 1.5 min), then mining. Follow it with `miner log`.
 
 **Extra config options**
 
@@ -72,18 +74,19 @@ The first start shows `[fetch]` and `[build]` lines, then `[selftest] fast kerne
 | `retune=1` | test batch sizes again at the next start (after an OC change). Remove it afterwards |
 | `tune=30` | seconds per batch size while tuning (default 20) |
 
-**Reinstalling**: `blocks.json` (your block history) and `tune.json` (saved batches) live in `/hive/miners/custom/argonmine-cuda/`. Copy them somewhere safe before deleting that folder. You can also keep the `cuda/` sub-folder, so the compiler is not downloaded again.
+**Reinstalling**: `blocks.json` (your block history) and `tune.json` (saved batches) live in `/hive/miners/custom/argonmine-cuda/`. Copy them somewhere safe before deleting that folder. If the miner ever had to compile itself, keep the `cuda/` sub-folder too, so the compiler is not downloaded again.
 
 ---
 
 ## Ubuntu / WSL2
 
+Use the **linux** archive, which is prebuilt, so nothing is compiled:
+
 ```bash
-sudo apt install -y g++ python3 wget tmux
+sudo apt install -y python3 wget tmux
 mkdir -p ~/argonmine && cd ~/argonmine
-wget https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.0/argonmine-cuda-0.4.0.tar.gz
-tar xzf argonmine-cuda-0.4.0.tar.gz && cd argonmine-cuda
-./build.sh
+wget https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.1/argonmine-cuda-linux-0.4.1.tar.gz
+tar xzf argonmine-cuda-linux-0.4.1.tar.gz && cd argonmine-cuda
 ./bin/argon_gpu --selftest          # must print "fast kernel: OK" and "original kernel: OK"
 ```
 
@@ -91,13 +94,13 @@ Run it inside `tmux`, so it keeps going when the terminal closes:
 
 ```bash
 tmux new -s arg
-python3 -u argonmine_hive.py --address arg1YOURADDRESS \
-  --jobfile /tmp/argonmine_job.txt --stats /tmp/argonmine_stats.json
+./run.sh arg1YOURADDRESS
 ```
 
 To detach press `Ctrl+B` then `D`, and to come back run `tmux attach -t arg`.
 
-- `--jobfile` and `--stats` point to `/tmp` because the defaults are under `/run`, which only root can write.
+- `run.sh` passes any extra option to the miner, for example `./run.sh arg1... --devices 0 --retune`. See [Options](#options).
+- If the prebuilt binary cannot run on your system, `run.sh` compiles it once (this needs `g++`: `sudo apt install -y g++`).
 - If several machines share one public IP, add `--interval 4` on the extra ones to space out requests to the work server.
 
 **WSL2 notes**
@@ -244,6 +247,7 @@ argonmine_hive.py ──GET /api/work──▶ explorer.argonmine.com
 
 ## Changelog
 
+- **0.4.1**: prebuilt binary in both archives (HiveOS and `linux`), nothing compiled at deploy time; automatic rebuild if the binary cannot run; `run.sh` launcher for Ubuntu/WSL2.
 - **0.4.0**: batch tuned per GPU and saved in `tune.json`; 1 % time-based dev fee; job refresh every 60 s; stale and reject reasons shown.
 - **0.3.0**: GPU summary table, block-found banner and block history (`blocks.json`).
 - **0.2.0**: fast warp-per-hash kernel, start-up self-test with automatic fallback.

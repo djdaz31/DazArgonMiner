@@ -4,7 +4,7 @@ NVIDIA CUDA miner for **Argonmine (ARG)**: Argon2id with t=1, m=8 MiB, p=1. It r
 
 - **Fast kernel**: one warp per hash, with the previous block kept in registers. On an RTX 5080 it is up to 30 % faster than the original kernel at the same batch size, and 7 % faster than the original kernel at its own best batch (see [Performance](#performance)).
 - **Self-tested hashes**: every GPU checks the fast kernel against a known-answer Argon2id tag at start-up. If the result is wrong, it falls back to the original kernel automatically.
-- **Batch tuned per GPU**: on first start each card tries 3–4 batch sizes, keeps the fastest and saves it.
+- **Batch tuned per GPU**: on first start each card tests 3–4 batch sizes for 45 s each, keeps the fastest and saves it.
 - **Multi-GPU rigs**: one process per GPU, one shared work fetcher, a separate nonce range per card.
 - **Console**: a status line every 10 s, a *GPU summary* table every minute (H/s, W, H/s/W, temperature, clocks, blocks) and a **Blocks found** history.
 - **HiveOS integration**: hashrate, temperatures, fans and accepted/rejected blocks show up on the dashboard.
@@ -56,14 +56,14 @@ Create a flight sheet with the **Custom** miner:
 | Wallet | your `arg1...` address |
 | Pool | Configure in miner |
 | Miner name | `argonmine-cuda` |
-| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-0.4.1.tar.gz` |
+| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-0.5.0.tar.gz` |
 | Hash algorithm | `argon2id` |
 | Wallet and worker template | `%WAL%` (address only, no `.%WORKER_NAME%`) |
 | Pool URL | `https://explorer.argonmine.com` |
 | Pass | *(empty)* |
 | Extra config arguments | *(empty)*, or for example `devices=0,1,2 retune=1` |
 
-Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then batch tuning (about 1.5 min), then mining. Follow it with `miner log`.
+Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then batch tuning (about 3 min), then mining. Follow it with `miner log`.
 
 **Extra config options**
 
@@ -72,7 +72,7 @@ Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then ba
 | `devices=0,2,3` | mine only on these GPU indices (default: all) |
 | `batch=768` | force one batch size on every GPU and skip tuning |
 | `retune=1` | test batch sizes again at the next start (after an OC change). Remove it afterwards |
-| `tune=30` | seconds per batch size while tuning (default 20) |
+| `tune=60` | seconds per batch size while tuning (default 45) |
 
 ### Example flight sheet
 
@@ -85,7 +85,7 @@ Wallet            : arg1q56234qn7f2mym8sjj7m4uww2aghgh8pah4q6gnnpusrutfqkn45shvc
 Pool              : Configure in miner
 Miner             : Custom
   Miner name                 : argonmine-cuda
-  Installation URL           : https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-0.4.1.tar.gz
+  Installation URL           : https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-0.5.0.tar.gz
   Hash algorithm             : argon2id
   Wallet and worker template : %WAL%
   Pool URL                   : https://explorer.argonmine.com
@@ -120,8 +120,8 @@ Use the **linux** archive, which is prebuilt, so nothing is compiled:
 ```bash
 sudo apt install -y python3 wget tmux
 mkdir -p ~/argonmine && cd ~/argonmine
-wget https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-linux-0.4.1.tar.gz
-tar xzf argonmine-cuda-linux-0.4.1.tar.gz && cd argonmine-cuda
+wget https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-linux-0.5.0.tar.gz
+tar xzf argonmine-cuda-linux-0.5.0.tar.gz && cd argonmine-cuda
 ./bin/argon_gpu --selftest          # must print "fast kernel: OK" and "original kernel: OK"
 ```
 
@@ -147,6 +147,16 @@ To detach press `Ctrl+B` then `D`, and to come back run `tmux attach -t arg`.
 ---
 
 ## Console
+
+At start-up the miner shows its banner (address, work server, dev fee, algorithm), each GPU with its architecture (`sm_86`…), and the kernel list. While batch sizes are being tuned, each GPU gets an animated progress bar:
+
+```
+GPU 0  ⠼  batch  640  Test 2/3 [━━━━━━──────────────]  33%  23.10 kH/s
+GPU 1  ⠼  batch  640  Test 2/3 [━━━━━━──────────────]  33%  23.14 kH/s
+    0/2 done
+```
+
+Then:
 
 ```
 81.54 kH/s | A:1 R:0 | GPU[0] 53.24 kH/s | GPU[1] 28.30 kH/s
@@ -183,7 +193,7 @@ Set `NO_COLOR=1` or pass `--no-color` for plain output.
 | `--devices` | `all` | GPU indices, for example `0,1,3` |
 | `--batch` | `auto` | `auto` = tuned per GPU, or one number for all GPUs |
 | `--retune` | off | test batch sizes again |
-| `--tune-seconds` | `20` | seconds per batch size while tuning |
+| `--tune-seconds` | `45` | seconds per batch size while tuning |
 | `--tune-file` | `<miner dir>/tune.json` | saved batch per GPU |
 | `--blocks` | `<miner dir>/blocks.json` | block history |
 | `--jobfile` | `/run/argonmine_job.txt` | current job, shared by the GPU processes |
@@ -282,6 +292,7 @@ argonmine_hive.py ──GET /api/work──▶ explorer.argonmine.com
 
 ## Changelog
 
+- **0.5.0**: start-up banner (address, server, fee, algorithm, GPU architectures, kernel list); animated progress bars while tuning; HiveOS log written by the miner itself.
 - **0.4.1**: prebuilt binary in both archives (HiveOS and `linux`), nothing compiled at deploy time; automatic rebuild if the binary cannot run; `run.sh` launcher for Ubuntu/WSL2.
 - **0.4.0**: batch tuned per GPU and saved in `tune.json`; 1 % time-based dev fee; job refresh every 60 s; stale and reject reasons shown.
 - **0.3.0**: GPU summary table, block-found banner and block history (`blocks.json`).

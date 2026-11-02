@@ -56,7 +56,7 @@ Create a flight sheet with the **Custom** miner:
 | Wallet | your `arg1...` address |
 | Pool | Configure in miner |
 | Miner name | `argonmine-cuda` |
-| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.1/argonmine-cuda-0.4.1.tar.gz` |
+| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-0.4.1.tar.gz` |
 | Hash algorithm | `argon2id` |
 | Wallet and worker template | `%WAL%` (address only, no `.%WORKER_NAME%`) |
 | Pool URL | `https://explorer.argonmine.com` |
@@ -85,7 +85,7 @@ Use the **linux** archive, which is prebuilt, so nothing is compiled:
 ```bash
 sudo apt install -y python3 wget tmux
 mkdir -p ~/argonmine && cd ~/argonmine
-wget https://github.com/djdaz31/DazArgonMiner/releases/download/v0.4.1/argonmine-cuda-linux-0.4.1.tar.gz
+wget https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-linux-0.4.1.tar.gz
 tar xzf argonmine-cuda-linux-0.4.1.tar.gz && cd argonmine-cuda
 ./bin/argon_gpu --selftest          # must print "fast kernel: OK" and "original kernel: OK"
 ```

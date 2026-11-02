@@ -3,10 +3,11 @@
 NVIDIA CUDA miner for **Argonmine (ARG)**: Argon2id with t=1, m=8 MiB, p=1. It runs on **HiveOS** as a custom miner, and on **Ubuntu** and **WSL2**.
 
 - **Fast kernel**: one warp per hash, with the previous block kept in registers. On an RTX 5080 it is up to 30 % faster than the original kernel at the same batch size, and 7 % faster than the original kernel at its own best batch (see [Performance](#performance)).
-- **Self-tested hashes**: every GPU checks the fast kernel against a known-answer Argon2id tag at start-up. If the result is wrong, it falls back to the original kernel automatically.
-- **Batch tuned per GPU**: on first start each card tests 3–4 batch sizes for 45 s each, keeps the fastest and saves it.
+- **fast2 kernel** (new in 0.6.0): the permutation runs in registers with warp shuffles, and in the first half of each hash the next reference block is prefetched while the current one is computed. Each GPU measures fast2 against fast and keeps the faster one.
+- **Self-tested hashes**: every GPU checks its kernel against a known-answer Argon2id tag at start-up and falls back fast2 → fast → original if the result is wrong.
+- **Kernel and batch tuned per GPU**: on first start each card tests the kernels, then 3–4 batch sizes, 45 s each while mining, keeps the fastest pair and saves it.
 - **Multi-GPU rigs**: one process per GPU, one shared work fetcher, a separate nonce range per card.
-- **Console**: a status line every 10 s, a *GPU summary* table every minute (H/s, W, H/s/W, temperature, clocks, blocks) and a **Blocks found** history.
+- **Dashboard**: a fixed screen refreshed every 2 s with every GPU, the **estimated time to find a block**, the **24 h chance**, the estimated network hashrate, the current round, your blocks and recent events.
 - **HiveOS integration**: hashrate, temperatures, fans and accepted/rejected blocks show up on the dashboard.
 - **Low CPU use**: the CPU sleeps while the GPU works, which matters on rigs with small CPUs.
 
@@ -56,14 +57,14 @@ Create a flight sheet with the **Custom** miner:
 | Wallet | your `arg1...` address |
 | Pool | Configure in miner |
 | Miner name | `argonmine-cuda` |
-| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-0.5.0.tar.gz` |
+| Installation URL | `https://github.com/djdaz31/DazArgonMiner/releases/download/0.6.0/argonmine-cuda-0.6.0.tar.gz` |
 | Hash algorithm | `argon2id` |
 | Wallet and worker template | `%WAL%` (address only, no `.%WORKER_NAME%`) |
 | Pool URL | `https://explorer.argonmine.com` |
 | Pass | *(empty)* |
 | Extra config arguments | *(empty)*, or for example `devices=0,1,2 retune=1` |
 
-Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then batch tuning (about 3 min), then mining. Follow it with `miner log`.
+Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then kernel and batch tuning (3–5 min), then the dashboard. Follow it with `miner log`.
 
 **Extra config options**
 
@@ -71,7 +72,8 @@ Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then ba
 |---|---|
 | `devices=0,2,3` | mine only on these GPU indices (default: all) |
 | `batch=768` | force one batch size on every GPU and skip tuning |
-| `retune=1` | test batch sizes again at the next start (after an OC change). Remove it afterwards |
+| `retune=1` | test kernels and batch sizes again at the next start (after an OC change). Remove it afterwards |
+| `kernel=fast` | force one kernel on every GPU: `fast2`, `fast` or `orig` |
 | `tune=60` | seconds per batch size while tuning (default 45) |
 
 ### Example flight sheet
@@ -85,7 +87,7 @@ Wallet            : arg1q56234qn7f2mym8sjj7m4uww2aghgh8pah4q6gnnpusrutfqkn45shvc
 Pool              : Configure in miner
 Miner             : Custom
   Miner name                 : argonmine-cuda
-  Installation URL           : https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-0.5.0.tar.gz
+  Installation URL           : https://github.com/djdaz31/DazArgonMiner/releases/download/0.6.0/argonmine-cuda-0.6.0.tar.gz
   Hash algorithm             : argon2id
   Wallet and worker template : %WAL%
   Pool URL                   : https://explorer.argonmine.com
@@ -120,8 +122,8 @@ Use the **linux** archive, which is prebuilt, so nothing is compiled:
 ```bash
 sudo apt install -y python3 wget tmux
 mkdir -p ~/argonmine && cd ~/argonmine
-wget https://github.com/djdaz31/DazArgonMiner/releases/download/0.5.0/argonmine-cuda-linux-0.5.0.tar.gz
-tar xzf argonmine-cuda-linux-0.5.0.tar.gz && cd argonmine-cuda
+wget https://github.com/djdaz31/DazArgonMiner/releases/download/0.6.0/argonmine-cuda-linux-0.6.0.tar.gz
+tar xzf argonmine-cuda-linux-0.6.0.tar.gz && cd argonmine-cuda
 ./bin/argon_gpu --selftest          # must print "fast kernel: OK" and "original kernel: OK"
 ```
 
@@ -148,37 +150,63 @@ To detach press `Ctrl+B` then `D`, and to come back run `tmux attach -t arg`.
 
 ## Console
 
-At start-up the miner shows its banner (address, work server, dev fee, algorithm), each GPU with its architecture (`sm_86`…), and the kernel list. While batch sizes are being tuned, each GPU gets an animated progress bar:
+**Launch**: the banner, the setup summary, then one progress bar per GPU while kernels and batch sizes are being tested:
 
 ```
-GPU 0  ⠼  batch  640  Test 2/3 [━━━━━━──────────────]  33%  23.10 kH/s
-GPU 1  ⠼  batch  640  Test 2/3 [━━━━━━──────────────]  33%  23.14 kH/s
-    0/2 done
+  ╔═════════════════╗
+  ║ 18          Ar  ║   D A Z  ·  A R G O N
+  ║                 ║   ══════════════════════════════════
+  ║   ▄▀▀▀▄         ║   Argon2id GPU miner  ·  solo
+  ║   █▄▄▄█ █▀▀▀    ║   v0.6.0  ·  RTX 30 / 40 / 50
+  ║   █   █ █       ║
+  ║                 ║   github.com/djdaz31/DazArgonMiner
+  ║     39.948      ║
+  ╚═════════════════╝
+  ┌ Address   arg1q…
+  ├ Work      explorer.argonmine.com  (solo)
+  ├ Dev fee   1 %  (60 s / 100 min)
+  ├ GPUs      4× RTX 3070 sm_86 · 1× RTX 4070 sm_89
+  └ Kernel    fast2 · fast · original  (best per GPU, saved in tune.json, self-tested)
+
+  GPU 0  ⠼  fast2 batch  768  Test 1/4 [━━━━━━━━────────────]  40%  25.99 kH/s
 ```
 
-Then:
+**Then the dashboard**, refreshed in place every 2 s:
 
 ```
-81.54 kH/s | A:1 R:0 | GPU[0] 53.24 kH/s | GPU[1] 28.30 kH/s
-
-GPU summary  60s avg   uptime 02h14   height 2901
-   #  GPU                       H/s       W    H/s/W  Temp   Core    Mem   Blocks
-───────────────────────────────────────────────────────────────────────────────
-   0  RTX 5080           53.24 kH/s   262.4    202.9    68   2632  14801      1/0
-   1  RTX 4070           28.30 kH/s   147.1    192.4    42   2700  10501      0/0
-───────────────────────────────────────────────────────────────────────────────
- ALL  2 GPU              81.54 kH/s   409.5    199.1     -      -      -      1/0
-
-Blocks found  2 total  (1 this session)   ≈ 100 ARG
-  2026-11-02 09:36:21  height 2901  GPU[0]  0000a3f9c1d2e4b5…  12/100 conf
-  2026-11-02 03:12:44  height 2795  GPU[1]  00001b2c3d4e5f60…  100/100 conf
+╔═════════╗  DazArgonMiner 0.6.0 · Argon2id · solo                       uptime 02h14
+║ 18   Ar ║  arg1q56234qn7f…shvc7tz                                     height 3 412
+║  39.948 ║  fee 1 % · kernel fast/fast2 · 3 GPUs
+╚═════════╝
+─────────────────────────────────────────────────────────────────────────────────────
+ GPU  model         hashrate     W   H/W   temp  fan    mem   krnl  batch  blk
+   0  RTX 3070    23.60 kH/s   149   158    48°  50%   8001  fast2    768    0
+   1  RTX 4070    28.30 kH/s   147   192    42°  63%  10501   fast   1024    1
+   2  RTX 5080    53.24 kH/s   262   203    68°  30%  14801  fast2   1280    0
+ ───  total       105.1 kH/s   558   188                                     1
+─────────────────────────────────────────────────────────────────────────────────────
+ » next block   ≈ 10 h 50 min       24 h chance    89 %
+ » network      ≈ 15.18 MH/s        your share     0.69 %
+ » this round   02h14  ▓▓▓░░░░░░░░░░░░░  21 % of expected
+─────────────────────────────────────────────────────────────────────────────────────
+ Blocks  1 total ≈ 49.5 ARG  A1 R0    last: #3 398 · GPU 1 · 11:42 · luck 0.42× · 14/100 conf
+─────────────────────────────────────────────────────────────────────────────────────
+ 11:42  ✔ BLOCK 3 398 found by GPU 1   +49.5 ARG   luck 0.42×
+ 12:01  ⚠ GPU 2 at 80°
 ```
 
-When a block is accepted, a green **★ BLOCK FOUND ★** banner shows its height, hash and the GPU that found it. A *stale* block means someone else found that height first. Repeated real rejects usually mean the memory overclock is too high.
+- **next block** = expected hashes for the current difficulty (from the work server's target) ÷ your hashrate. It is an average: in solo mining waiting twice as long happens often.
+- **24 h chance** = probability of finding at least one block in the next 24 h at this hashrate.
+- **network** is estimated from the difficulty and how fast the chain tip moves.
+- **this round** = time since your last block (or since start) compared with the expected time. **luck** < 1 means a block came sooner than expected.
+- Temperatures turn yellow at 70° and red at 80°, and a GPU whose miner restarts turns red. The frame flashes green when a block is found.
+- A window narrower than 80 columns gets a compact table. Without a terminal (`--no-dashboard`, pipes, `NO_COLOR`), the miner prints plain lines instead: `[ RIG ]`, `[ ETA ]`, `[ NET ]` and `[ GPU ]` every minute, plus events.
+- **HiveOS**: `miner` shows the dashboard, and `miner log` gets the plain lines.
+
+A *stale* block means someone else found that height first. Repeated real rejects usually mean the memory overclock is too high.
 
 The miner counts the blocks the network accepted when you submitted them. A block can still be orphaned later, so the [explorer](https://explorer.argonmine.com) is the reference for your balance.
 
-Set `NO_COLOR=1` or pass `--no-color` for plain output.
 
 ---
 
@@ -192,26 +220,30 @@ Set `NO_COLOR=1` or pass `--no-color` for plain output.
 | `--api` | `https://explorer.argonmine.com` | work server |
 | `--devices` | `all` | GPU indices, for example `0,1,3` |
 | `--batch` | `auto` | `auto` = tuned per GPU, or one number for all GPUs |
-| `--retune` | off | test batch sizes again |
+| `--retune` | off | test kernels and batch sizes again |
 | `--tune-seconds` | `45` | seconds per batch size while tuning |
-| `--tune-file` | `<miner dir>/tune.json` | saved batch per GPU |
+| `--tune-file` | `<miner dir>/tune.json` | saved kernel + batch per GPU |
 | `--blocks` | `<miner dir>/blocks.json` | block history |
 | `--jobfile` | `/run/argonmine_job.txt` | current job, shared by the GPU processes |
 | `--stats` | `/run/argonmine_stats.json` | stats for HiveOS |
 | `--interval` | `2` | seconds between chain-tip checks |
 | `--refetch` | `60` | refresh the job at least this often (jobs expire after 2 min) |
-| `--summary` | `60` | seconds between summary tables |
-| `--no-color` | off | plain output |
+| `--summary` | `60` | seconds between plain summaries (plain mode and `--log`) |
+| `--no-dashboard` | off | plain scrolling lines instead of the dashboard |
+| `--log` | *(none)* | also write plain lines to this file |
+| `--no-color` | off | no colours (implies plain lines) |
 
-Environment: setting `ARGON_KERNEL=orig` forces the original kernel.
+Environment: `ARGON_KERNEL=fast2|fast|orig` forces one kernel on every GPU.
 
-`bin/argon_gpu --selftest` runs both kernels against the known-answer tag and uses 8 MiB of VRAM.
+`bin/argon_gpu --selftest` runs the three kernels against the known-answer tag and uses 8 MiB of VRAM.
 
 ---
 
 ## Performance
 
 All figures were measured on real cards with this miner. 30 s runs are noisy, so treat a few % as noise.
+
+> **fast2** is new in 0.6.0 and not in these tables yet. Every GPU measures fast2 against fast during tuning: the `rates` saved in `tune.json` show both figures for your cards.
 
 **Kernel comparison on an RTX 5080** (same overclock, H/s):
 
@@ -268,7 +300,8 @@ argonmine_hive.py ──GET /api/work──▶ explorer.argonmine.com
 
 - `argon_gpu` stays resident and reloads the job file when it changes, so a new block costs a file rewrite, not a process restart.
 - **Fast kernel**: one 32-thread warp per hash and 4 hashes per CUDA block. The previous block stays in registers instead of being read back from VRAM. Warp-level sync only, with no `__syncthreads`. The BLAKE2b-based `P` permutation runs over a 1 KiB shared-memory tile per hash.
-- **Correctness**: `tools/argon2ref.py` is a pure-Python Argon2id that reproduces the RFC 9106 test vector. It generated the known-answer tag that the CUDA kernels check against at every start. The CUDA source of both kernels was also compiled and run on CPU threads emulating the warp, and both matched that tag.
+- **fast2 kernel**: same warp-per-hash layout, but each lane keeps 4 qwords of one row in registers. The row and column rounds exchange data with `__shfl_sync`, and shared memory is only used for the two row↔column transposes (padded against bank conflicts). Reference blocks are read with `ld.global.cg`. In slices 0–1 (data-independent addressing) the next reference block is loaded while the current block is computed.
+- **Correctness**: `tools/argon2ref.py` is a pure-Python Argon2id that reproduces the RFC 9106 test vector. It generated the known-answer tag that the CUDA kernels check against at every start. The CUDA source of the three kernels was also compiled and run on CPU threads emulating the warp, and all of them matched that tag and the Python reference on other inputs.
 - The build applies two small patches (`patch_lowcpu.py`, `patch_fast.py`) to the original source in `src/argon_gpu.cu`. If the fast kernel fails to compile, the original kernel is built instead.
 
 **Work-server limits** (from the Argonmine docs): jobs expire 2 minutes after issue, at most 8 open jobs per payout address, and at most 3 solutions checked per job.
@@ -292,6 +325,7 @@ argonmine_hive.py ──GET /api/work──▶ explorer.argonmine.com
 
 ## Changelog
 
+- **0.6.0**: dashboard (time to next block, 24 h chance, network estimate, round, blocks, events); periodic-table launch banner; new fast2 kernel; kernel and batch tuned per GPU; `kernel=` option.
 - **0.5.0**: start-up banner (address, server, fee, algorithm, GPU architectures, kernel list); animated progress bars while tuning; HiveOS log written by the miner itself.
 - **0.4.1**: prebuilt binary in both archives (HiveOS and `linux`), nothing compiled at deploy time; automatic rebuild if the binary cannot run; `run.sh` launcher for Ubuntu/WSL2.
 - **0.4.0**: batch tuned per GPU and saved in `tune.json`; 1 % time-based dev fee; job refresh every 60 s; stale and reject reasons shown.

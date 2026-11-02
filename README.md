@@ -74,6 +74,41 @@ Nothing is compiled: the first start shows `[selftest] fast kernel: OK`, then ba
 | `retune=1` | test batch sizes again at the next start (after an OC change). Remove it afterwards |
 | `tune=30` | seconds per batch size while tuning (default 20) |
 
+### Example flight sheet
+
+> ⚠️ This example mines to the **author's** address. Put **your own** `arg1...` address in the wallet, or the blocks you find go to the author.
+
+```
+Flight sheet name : ARG argonmine-cuda
+Coin              : ARG
+Wallet            : arg1q56234qn7f2mym8sjj7m4uww2aghgh8pah4q6gnnpusrutfqkn45shvc7tz   ← replace
+Pool              : Configure in miner
+Miner             : Custom
+  Miner name                 : argonmine-cuda
+  Installation URL           : https://github.com/djdaz31/DazArgonMiner/releases/download/0.4.1/argonmine-cuda-0.4.1.tar.gz
+  Hash algorithm             : argon2id
+  Wallet and worker template : %WAL%
+  Pool URL                   : https://explorer.argonmine.com
+  Pass                       : (empty)
+  Extra config arguments     : (empty)
+```
+
+<!-- screenshot of the real flight sheet: put it in docs/flightsheet.png and uncomment
+![HiveOS flight sheet](docs/flightsheet.png)
+-->
+
+**Matching OC profile** (algorithm `argon2id`) measured on a rig of 4× RTX 3070 + 1× RTX 4070 (GPU order: 3070, 4070, 3070, 3070, 3070). Total **122.6 kH/s**:
+
+| Field | Value |
+|---|---|
+| Core Clock Offset | `200 100 0 200 200` |
+| Lock Core Clock | `0 2700 0 0 0` |
+| Memory Clock Offset | `1000 800 1000 1000 1000` |
+| Lock Memory Clock | *(empty, important)* |
+| Power Limit | `150 180 150 150 150` |
+
+These are starting values, not limits: the 3070s were still power-limited at 150 W. See [Overclocking](#overclocking).
+
 **Reinstalling**: `blocks.json` (your block history) and `tune.json` (saved batches) live in `/hive/miners/custom/argonmine-cuda/`. Copy them somewhere safe before deleting that folder. If the miner ever had to compile itself, keep the `cuda/` sub-folder too, so the compiler is not downloaded again.
 
 ---
